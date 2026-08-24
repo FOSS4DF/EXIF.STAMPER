@@ -1,0 +1,1401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EXIF Reader</title>
+<link rel="shortcut icon" href="https://unsec.unssc.org/pluginfile.php/1/tool_tenant/favicon/5/un-logo.png" />
+
+<!-- External library: reads EXIF metadata embedded in image files -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exif-js/2.3.0/exif.min.js"></script>
+
+<style>
+  /* ── Google Fonts ─────────────────────────────────────────────────────────
+     IBM Plex Mono  → used for data labels, values, code-like elements
+     IBM Plex Sans  → used for general body text                           */
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+
+  /* ── CSS Reset ────────────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* ── Design tokens (CSS custom properties) ───────────────────────────── */
+  :root {
+    --bg:      #0e0f11;   /* page background */
+    --surface: #16181c;   /* card / panel background */
+    --border:  #2a2d34;   /* subtle borders */
+    --accent:  #00e5a0;   /* primary green accent */
+    --accent2: #0099ff;   /* secondary blue accent */
+    --warn:    #ff6b35;   /* warning / error orange */
+    --text:    #e8eaf0;   /* primary text */
+    --muted:   #6b7280;   /* secondary / placeholder text */
+    --mono:    'IBM Plex Mono', monospace;
+    --sans:    'IBM Plex Sans', sans-serif;
+  }
+
+  /* ── Page layout ─────────────────────────────────────────────────────── */
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+  }
+
+  /* Subtle dot-grid background pattern using CSS gradients */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,160,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,160,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none; /* grid must not block mouse events */
+    z-index: 0;
+  }
+
+  /* Main content wrapper, centred and width-capped */
+  .container { width: 100%; max-width: 860px; position: relative; z-index: 1; }
+
+  /* ── Header bar ──────────────────────────────────────────────────────── */
+  header {
+    margin-bottom: 36px;
+    display: flex;
+    align-items: flex-end;
+    gap: 16px;
+  }
+
+  /* Logo square in top-left */
+  .logo-mark {
+    width: 44px; height: 44px;
+    border: 2px solid var(--accent); border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 18px; color: var(--accent); font-weight: 600;
+    flex-shrink: 0; box-shadow: 0 0 16px rgba(0,229,160,0.2);
+  }
+
+  /* App name and subtitle next to the logo */
+  h1 { font-family: var(--mono); font-size: 22px; font-weight: 600; letter-spacing: -0.5px; }
+  h1 span { color: var(--accent); }
+  .subtitle { font-size: 13px; color: var(--muted); font-family: var(--mono); margin-top: 2px; }
+
+  /* Spacer that pushes the language picker to the right */
+  .header-spacer { flex: 1; }
+
+  /* ── Language picker ─────────────────────────────────────────────────── */
+  .lang-picker {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px 6px;
+    flex-shrink: 0;
+    align-self: center;
+  }
+
+  /* Individual language toggle buttons */
+  .lang-btn {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 9px;
+    border-radius: 5px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    color: var(--muted);
+    background: transparent;
+    transition: all 0.15s;
+    letter-spacing: 0.5px;
+  }
+  .lang-btn:hover { color: var(--text); border-color: var(--border); }
+  /* Active language highlighted with accent colour */
+  .lang-btn.active {
+    background: rgba(0,229,160,0.12);
+    color: var(--accent);
+    border-color: rgba(0,229,160,0.3);
+  }
+
+  /* ── Drop zone ───────────────────────────────────────────────────────── */
+  .drop-zone {
+    border: 2px dashed var(--border); border-radius: 12px; padding: 48px 32px;
+    text-align: center; cursor: pointer; transition: all 0.2s ease;
+    background: var(--surface); position: relative; overflow: hidden;
+  }
+  /* Radial glow overlay (purely decorative) */
+  .drop-zone::after {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(circle at 50% 0%, rgba(0,229,160,0.06) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  /* Highlighted state: when hovering or dragging a file over the zone */
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent); background: #1a1d22;
+    box-shadow: 0 0 32px rgba(0,229,160,0.1), inset 0 0 32px rgba(0,229,160,0.03);
+  }
+  .drop-zone:hover .drop-icon, .drop-zone.drag-over .drop-icon { color: var(--accent); transform: scale(1.1); }
+  .drop-icon { font-size: 42px; margin-bottom: 14px; transition: all 0.2s; display: block; color: var(--muted); }
+  .drop-title { font-family: var(--mono); font-size: 15px; font-weight: 500; margin-bottom: 6px; }
+  .drop-sub { font-size: 13px; color: var(--muted); }
+  /* "Browse" link inside the drop zone */
+  .drop-sub strong { color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+  /* Native file input hidden; triggered programmatically */
+  #fileInput { display: none; }
+
+  /* ── Stamp settings panel ────────────────────────────────────────────── */
+  /* Hidden by default; shown after first image is loaded */
+  .stamp-settings {
+    display: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 18px;
+  }
+  .stamp-settings.visible { display: block; }
+
+  /* Section heading with a decorative horizontal line after it */
+  .settings-title {
+    font-family: var(--mono); font-size: 12px; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--accent); margin-bottom: 16px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .settings-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  /* Responsive grid for settings controls */
+  .settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 14px;
+  }
+
+  /* Label above each setting control */
+  .setting-group label {
+    display: block; font-family: var(--mono); font-size: 10px;
+    text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 6px;
+  }
+
+  /* Unified style for select, range slider and color picker */
+  .setting-group select,
+  .setting-group input[type="range"],
+  .setting-group input[type="color"] {
+    width: 100%; background: #0e0f11; border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); font-family: var(--mono);
+    font-size: 12px; padding: 7px 10px; outline: none;
+    appearance: none; -webkit-appearance: none; cursor: pointer; transition: border-color 0.15s;
+  }
+  .setting-group select:focus, .setting-group input:focus { border-color: var(--accent); }
+  .setting-group input[type="range"] { padding: 4px 0; height: 28px; accent-color: var(--accent); }
+  .setting-group input[type="color"] { padding: 3px 6px; height: 34px; }
+  /* Live readout of range slider value (e.g. "28px") */
+  .range-val { font-family: var(--mono); font-size: 11px; color: var(--accent); margin-top: 4px; }
+
+  /* Checkbox row group, below the settings grid */
+  .checkboxes {
+    display: flex; flex-wrap: wrap; gap: 16px;
+    margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);
+  }
+  .checkbox-row {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 12px; color: var(--text);
+    cursor: pointer; user-select: none;
+  }
+  .checkbox-row input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--accent); cursor: pointer; }
+
+  /* ── File card list ──────────────────────────────────────────────────── */
+  .file-queue { display: none; flex-direction: column; gap: 10px; margin-top: 20px; }
+  .file-queue.visible { display: flex; }
+
+  /* Each processed image gets its own collapsible card */
+  .file-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden;
+    animation: slideIn 0.3s ease forwards; opacity: 0;
+  }
+  /* Entrance animation: slides up from slightly below */
+  @keyframes slideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* Clickable header row of each card */
+  .file-card-header {
+    display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+    cursor: pointer; user-select: none; transition: background 0.15s;
+  }
+  .file-card-header:hover { background: rgba(255,255,255,0.02); }
+  /* Small thumbnail preview */
+  .file-thumb { width: 48px; height: 48px; border-radius: 6px; object-fit: cover; border: 1px solid var(--border); flex-shrink: 0; }
+  .file-info { flex: 1; min-width: 0; }
+  .file-name { font-family: var(--mono); font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .file-size { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* Status badge (ok / none / partial) */
+  .file-status { font-family: var(--mono); font-size: 11px; padding: 3px 8px; border-radius: 4px; font-weight: 500; flex-shrink: 0; }
+  .status-ok    { background: rgba(0,229,160,0.12); color: var(--accent);  border: 1px solid rgba(0,229,160,0.25); }
+  .status-none  { background: rgba(255,107,53,0.1);  color: var(--warn);   border: 1px solid rgba(255,107,53,0.2); }
+  .status-partial { background: rgba(0,153,255,0.1); color: var(--accent2);border: 1px solid rgba(0,153,255,0.2); }
+
+  /* Chevron arrow rotates when card is expanded */
+  .chevron { color: var(--muted); font-size: 13px; transition: transform 0.2s; flex-shrink: 0; }
+  .file-card.expanded .chevron { transform: rotate(180deg); }
+
+  /* Body (EXIF data) hidden until card is expanded */
+  .file-card-body { display: none; padding: 0 18px 18px; border-top: 1px solid var(--border); }
+  .file-card.expanded .file-card-body { display: block; }
+
+  /* ── Data grid inside each card ──────────────────────────────────────── */
+  .data-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+  .data-cell { background: #0e0f11; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; position: relative; }
+  .data-cell.full-width { grid-column: 1 / -1; }
+  .data-label { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 6px; }
+  .data-value { font-family: var(--mono); font-size: 15px; font-weight: 500; word-break: break-all; }
+  .data-value.accent  { color: var(--accent); }
+  .data-value.accent2 { color: var(--accent2); }
+  .data-value.empty   { color: var(--muted); font-size: 13px; font-style: italic; }
+
+  /* Copy-to-clipboard button, appears on hover */
+  .copy-btn {
+    position: absolute; top: 10px; right: 10px;
+    background: transparent; border: 1px solid var(--border); border-radius: 4px;
+    color: var(--muted); font-size: 10px; font-family: var(--mono);
+    padding: 3px 7px; cursor: pointer; transition: all 0.15s; opacity: 0;
+  }
+  .data-cell:hover .copy-btn { opacity: 1; }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .copy-btn.copied { border-color: var(--accent); color: var(--accent); opacity: 1; }
+
+  /* Link to open coordinates in Google Maps */
+  .map-link {
+    display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;
+    font-family: var(--mono); font-size: 12px; color: var(--accent2); text-decoration: none;
+    border: 1px solid rgba(0,153,255,0.25); border-radius: 5px; padding: 5px 10px; transition: all 0.15s;
+  }
+  .map-link:hover { background: rgba(0,153,255,0.08); border-color: var(--accent2); }
+
+  /* ── Bottom toolbar (shown after images are loaded) ──────────────────── */
+  .toolbar {
+    display: none; align-items: center; justify-content: space-between;
+    margin-top: 20px; padding: 14px 18px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  }
+  .toolbar.visible { display: flex; flex-wrap: wrap; gap: 10px; }
+  .toolbar-label { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .toolbar-label strong { color: var(--accent); }
+  .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* ── Button variants ─────────────────────────────────────────────────── */
+  .btn {
+    font-family: var(--mono); font-size: 12px; font-weight: 500;
+    padding: 8px 16px; border-radius: 6px; cursor: pointer; border: 1px solid; transition: all 0.15s;
+  }
+  /* Solid green – primary action */
+  .btn-primary  { background: var(--accent);  color: #0a0a0a; border-color: var(--accent); }
+  .btn-primary:hover { background: #00c888; border-color: #00c888; }
+  /* Blue-tinted – stamp actions */
+  .btn-stamp    { background: rgba(0,153,255,0.12); color: var(--accent2); border-color: rgba(0,153,255,0.3); }
+  .btn-stamp:hover { background: rgba(0,153,255,0.22); }
+  /* Ghost – secondary / neutral */
+  .btn-secondary { background: transparent; color: var(--text); border-color: var(--border); }
+  .btn-secondary:hover { border-color: var(--muted); }
+  /* Red-tinted – destructive actions */
+  .btn-danger   { background: transparent; color: var(--warn); border-color: rgba(255,107,53,0.3); }
+  .btn-danger:hover { background: rgba(255,107,53,0.08); }
+  /* Smaller variant for inline per-card buttons */
+  .btn-sm { padding: 6px 12px; font-size: 11px; }
+
+  /* Warning box shown when an image has no EXIF metadata */
+  .no-exif {
+    padding: 14px; background: rgba(255,107,53,0.06);
+    border: 1px solid rgba(255,107,53,0.15); border-radius: 7px;
+    font-family: var(--mono); font-size: 12px; color: var(--warn); margin-top: 14px;
+  }
+
+  footer { margin-top: 48px; font-size: 12px; color: var(--muted); font-family: var(--mono); text-align: center; }
+
+  /* Blinking animation used on the "reading…" badge while EXIF is being parsed */
+  .pulse { animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* ── Stamp preview modal ─────────────────────────────────────────────── */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.88);
+    z-index: 1000; align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    max-width: 750px; width: 100%; max-height: 92vh; overflow: auto;
+    padding: 24px; position: relative;
+  }
+  .modal-title { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--accent); margin-bottom: 16px; }
+  /* Canvas element that displays the stamped preview image */
+  .modal canvas { max-width: 100%; border-radius: 6px; display: block; border: 1px solid var(--border); }
+  .modal-actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
+  .modal-close {
+    position: absolute; top: 16px; right: 16px;
+    background: transparent; border: 1px solid var(--border);
+    color: var(--muted); border-radius: 6px; padding: 4px 10px;
+    cursor: pointer; font-size: 14px; transition: all 0.15s;
+  }
+  .modal-close:hover { border-color: var(--warn); color: var(--warn); }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header>
+    <div class="logo-mark">EF</div>
+    <div>
+      <h1>EXIF<span>.</span>STAMPER</h1>
+      <!-- subtitle text is updated by the i18n system -->
+      <div class="subtitle" data-i18n="subtitle">// extract · stamp · download  ·  date · time · gps coordinates</div>
+    </div>
+
+    <!-- Spacer pushes the language picker all the way to the right -->
+    <div class="header-spacer"></div>
+
+    <!-- ── Language switcher ─────────────────────────────────────────────── -->
+    <div class="lang-picker" title="Choose language / Choisir la langue">
+      <button class="lang-btn active" onclick="setLang('en')">EN</button>
+      <button class="lang-btn"        onclick="setLang('fr')">FR</button>
+      <button class="lang-btn"        onclick="setLang('sw')">SW</button>
+      <button class="lang-btn"        onclick="setLang('ln')">LN</button>
+    </div>
+  </header>
+
+  <!-- ── Drop zone ───────────────────────────────────────────────────────── -->
+  <div class="drop-zone" id="dropZone">
+    <span class="drop-icon">🖼</span>
+    <div class="drop-title" data-i18n="dropTitle">Drop images here</div>
+    <div class="drop-sub">
+      <!-- The <strong> acts as a clickable "browse" link -->
+      <span data-i18n="dropOr">or</span>
+      <strong onclick="document.getElementById('fileInput').click()" data-i18n="dropBrowse">browse files</strong>
+      &nbsp;·&nbsp;
+      <span data-i18n="dropFormats">JPEG, TIFF, HEIC supported</span>
+    </div>
+    <!-- Hidden native file picker; triggered by the browse link or drop zone click -->
+    <input type="file" id="fileInput" multiple accept="image/*">
+  </div>
+
+  <!-- ── Stamp settings panel ────────────────────────────────────────────── -->
+  <!-- Shown only after at least one image has been loaded -->
+  <div class="stamp-settings" id="stampSettings">
+    <div class="settings-title" data-i18n="stampSettingsTitle">⚙ Stamp Settings</div>
+    <div class="settings-grid">
+
+      <!-- Stamp position on the image -->
+      <div class="setting-group">
+        <label data-i18n="settingPosition">Position</label>
+        <select id="stampPos">
+          <option value="bottom-right"  data-i18n="posBottomRight">Bottom Right</option>
+          <option value="bottom-left"   data-i18n="posBottomLeft">Bottom Left</option>
+          <option value="top-right"     data-i18n="posTopRight">Top Right</option>
+          <option value="top-left"      data-i18n="posTopLeft">Top Left</option>
+          <option value="bottom-center" data-i18n="posBottomCenter">Bottom Center</option>
+        </select>
+      </div>
+
+      <!-- Font size slider (value shown live) -->
+      <div class="setting-group">
+        <label data-i18n="settingFontSize">Font Size</label>
+        <input type="range" id="stampFontSize" min="10" max="72" value="28"
+               oninput="document.getElementById('fontSizeVal').textContent=this.value+'px'">
+        <div class="range-val" id="fontSizeVal">28px</div>
+      </div>
+
+      <!-- Text color picker -->
+      <div class="setting-group">
+        <label data-i18n="settingTextColor">Text Color</label>
+        <input type="color" id="stampColor" value="#ffffff">
+      </div>
+
+      <!-- Background box opacity slider -->
+      <div class="setting-group">
+        <label data-i18n="settingBgOpacity">Background Opacity</label>
+        <input type="range" id="stampBgOpacity" min="0" max="100" value="55"
+               oninput="document.getElementById('bgOpacVal').textContent=this.value+'%'">
+        <div class="range-val" id="bgOpacVal">55%</div>
+      </div>
+
+      <!-- Inner padding slider -->
+      <div class="setting-group">
+        <label data-i18n="settingPadding">Padding</label>
+        <input type="range" id="stampPadding" min="4" max="40" value="14"
+               oninput="document.getElementById('padVal').textContent=this.value+'px'">
+        <div class="range-val" id="padVal">14px</div>
+      </div>
+
+      <!-- JPEG output quality -->
+      <div class="setting-group">
+        <label data-i18n="settingQuality">Output Quality</label>
+        <select id="stampQuality">
+          <option value="0.97" data-i18n="qualityHigh">High (97%)</option>
+          <option value="0.85" selected data-i18n="qualityMed">Medium (85%)</option>
+          <option value="0.70" data-i18n="qualityLow">Low (70%)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Checkboxes to select which EXIF fields appear on the stamp -->
+    <div class="checkboxes">
+      <label class="checkbox-row"><input type="checkbox" id="inclDate"  checked> <span data-i18n="inclDate">Include Date</span></label>
+      <label class="checkbox-row"><input type="checkbox" id="inclTime"  checked> <span data-i18n="inclTime">Include Time</span></label>
+      <label class="checkbox-row"><input type="checkbox" id="inclGPS"   checked> <span data-i18n="inclGPS">Include GPS Coordinates</span></label>
+      <label class="checkbox-row"><input type="checkbox" id="inclModel" checked> <span data-i18n="inclModel">Include Camera Model</span></label>
+    </div>
+  </div>
+
+  <!-- ── Processed file cards ─────────────────────────────────────────────── -->
+  <div class="file-queue" id="fileQueue"></div>
+
+  <!-- ── Bottom toolbar ──────────────────────────────────────────────────── -->
+  <div class="toolbar" id="toolbar">
+    <div class="toolbar-label">
+      <strong id="countLabel">0</strong> <span data-i18n="toolbarCount">image(s) processed</span>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-stamp"     onclick="stampAll()"  data-i18n="btnStampAll">🖨 Stamp &amp; Download All</button>
+      <button class="btn btn-secondary" onclick="exportCSV()" data-i18n="btnCSV">⬇ Export CSV</button>
+      <button class="btn btn-primary"   onclick="copyAll()"   data-i18n="btnCopyAll">⎘ Copy All</button>
+      <button class="btn btn-danger"    onclick="clearAll()"  data-i18n="btnClear">✕ Clear</button>
+    </div>
+  </div>
+
+</div><!-- /.container -->
+
+<!-- ── Stamp preview modal ──────────────────────────────────────────────────
+     Clicking outside the white box (on the dark overlay) closes the modal. -->
+<div class="modal-overlay" id="previewModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div class="modal-title" id="modalTitle">Stamp Preview</div>
+    <!-- Canvas is populated by stampToCanvas() before the modal opens -->
+    <canvas id="modalCanvas"></canvas>
+    <div class="modal-actions">
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()" data-i18n="btnClose">Close</button>
+      <button class="btn btn-stamp btn-sm"     onclick="downloadFromModal()" data-i18n="btnDownloadStamped">⬇ Download Stamped Image</button>
+    </div>
+  </div>
+</div>
+
+<footer data-i18n="footer">runs entirely in your browser · no data is uploaded anywhere</footer>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     JavaScript
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script>
+
+/* ─────────────────────────────────────────────────────────────────────────
+   SECTION 1 – INTERNATIONALISATION (i18n)
+   All user-visible strings for each language are stored here.
+   Calling setLang(code) rewrites every element that has a data-i18n attr.
+   ───────────────────────────────────────────────────────────────────────── */
+const LANGS = {
+  en: {
+    /* Page chrome */
+    subtitle:         '// extract · stamp · download  ·  date · time · gps coordinates',
+    dropTitle:        'Drop images here',
+    dropOr:           'or',
+    dropBrowse:       'browse files',
+    dropFormats:      'JPEG, TIFF, HEIC supported',
+    footer:           'runs entirely in your browser · no data is uploaded anywhere',
+
+    /* Stamp settings panel */
+    stampSettingsTitle: '⚙ Stamp Settings',
+    settingPosition:    'Position',
+    posBottomRight:     'Bottom Right',
+    posBottomLeft:      'Bottom Left',
+    posTopRight:        'Top Right',
+    posTopLeft:         'Top Left',
+    posBottomCenter:    'Bottom Center',
+    settingFontSize:    'Font Size',
+    settingTextColor:   'Text Color',
+    settingBgOpacity:   'Background Opacity',
+    settingPadding:     'Padding',
+    settingQuality:     'Output Quality',
+    qualityHigh:        'High (97%)',
+    qualityMed:         'Medium (85%)',
+    qualityLow:         'Low (70%)',
+    inclDate:           'Include Date',
+    inclTime:           'Include Time',
+    inclGPS:            'Include GPS Coordinates',
+    inclModel:          'Include Camera Model',
+
+    /* Toolbar */
+    toolbarCount:     'image(s) processed',
+    btnStampAll:      '🖨 Stamp & Download All',
+    btnCSV:           '⬇ Export CSV',
+    btnCopyAll:       '⎘ Copy All',
+    btnClear:         '✕ Clear',
+
+    /* Modal */
+    btnClose:            'Close',
+    btnDownloadStamped:  '⬇ Download Stamped Image',
+
+    /* Per-card labels */
+    labelDate:    'Date',
+    labelTime:    'Time',
+    labelLat:     'Latitude',
+    labelLng:     'Longitude',
+    labelDecCoord:'Decimal Coordinates',
+    labelCamera:  'Camera',
+    btnPreview:   '👁 Preview Stamp',
+    btnDownload:  '⬇ Download Stamped',
+    btnCopyDec:   'copy dec',
+    btnCopy:      'copy',
+    btnCopied:    '✓ copied',
+    openMaps:     '🗺 Open in Google Maps',
+    noExif:       '⚠ No EXIF metadata found. The file may have had metadata stripped.',
+    statusReading:'reading…',
+    statusGPS:    'gps + date',
+    statusDate:   'date only',
+    statusPartial:'partial',
+    statusNoExif: 'no exif',
+
+    /* Stamp label prefixes (burned into the image pixel data) */
+    stampDate:    'Date: ',
+    stampTime:    'Time: ',
+    stampGPS:     'GPS:  ',
+    stampModel:   'Model:',
+
+    /* Alerts */
+    alertNoExif:  'No images with EXIF data to stamp.',
+    alertCopied:  'Copied to clipboard!',
+    alertImgErr:  'Could not generate image. Try a different browser.',
+  },
+
+  fr: {
+    subtitle:         '// extraire · tamponner · télécharger  ·  date · heure · coordonnées GPS',
+    dropTitle:        'Déposez vos images ici',
+    dropOr:           'ou',
+    dropBrowse:       'parcourir les fichiers',
+    dropFormats:      'JPEG, TIFF, HEIC pris en charge',
+    footer:           'fonctionne entièrement dans votre navigateur · aucune donnée n\'est envoyée',
+
+    stampSettingsTitle: '⚙ Paramètres du tampon',
+    settingPosition:    'Position',
+    posBottomRight:     'En bas à droite',
+    posBottomLeft:      'En bas à gauche',
+    posTopRight:        'En haut à droite',
+    posTopLeft:         'En haut à gauche',
+    posBottomCenter:    'En bas au centre',
+    settingFontSize:    'Taille de police',
+    settingTextColor:   'Couleur du texte',
+    settingBgOpacity:   'Opacité du fond',
+    settingPadding:     'Marge intérieure',
+    settingQuality:     'Qualité de sortie',
+    qualityHigh:        'Haute (97%)',
+    qualityMed:         'Moyenne (85%)',
+    qualityLow:         'Basse (70%)',
+    inclDate:           'Inclure la date',
+    inclTime:           'Inclure l\'heure',
+    inclGPS:            'Inclure les coordonnées GPS',
+    inclModel:          'Inclure le modèle d\'appareil',
+
+    toolbarCount:     'image(s) traitée(s)',
+    btnStampAll:      '🖨 Tamponner et tout télécharger',
+    btnCSV:           '⬇ Exporter en CSV',
+    btnCopyAll:       '⎘ Tout copier',
+    btnClear:         '✕ Effacer',
+
+    btnClose:           'Fermer',
+    btnDownloadStamped: '⬇ Télécharger l\'image tamponnée',
+
+    labelDate:    'Date',
+    labelTime:    'Heure',
+    labelLat:     'Latitude',
+    labelLng:     'Longitude',
+    labelDecCoord:'Coordonnées décimales',
+    labelCamera:  'Appareil photo',
+    btnPreview:   '👁 Aperçu du tampon',
+    btnDownload:  '⬇ Télécharger tamponnée',
+    btnCopyDec:   'copier déc.',
+    btnCopy:      'copier',
+    btnCopied:    '✓ copié',
+    openMaps:     '🗺 Ouvrir dans Google Maps',
+    noExif:       '⚠ Aucune métadonnée EXIF trouvée. Le fichier a peut-être été nettoyé.',
+    statusReading:'lecture…',
+    statusGPS:    'gps + date',
+    statusDate:   'date seule',
+    statusPartial:'partiel',
+    statusNoExif: 'pas d\'exif',
+
+    stampDate:  'Date : ',
+    stampTime:  'Heure : ',
+    stampGPS:   'GPS :  ',
+    stampModel: 'Modèle :',
+
+    alertNoExif: 'Aucune image avec des données EXIF à tamponner.',
+    alertCopied: 'Copié dans le presse-papiers !',
+    alertImgErr: 'Impossible de générer l\'image. Essayez un autre navigateur.',
+  },
+
+  sw: {
+    /* Swahili */
+    subtitle:         '// toa · piga chapa · pakua  ·  tarehe · muda · kuratibu GPS',
+    dropTitle:        'Weka picha hapa',
+    dropOr:           'au',
+    dropBrowse:       'vinjari faili',
+    dropFormats:      'JPEG, TIFF, HEIC inasaidiwa',
+    footer:           'inafanya kazi kabisa kwenye kivinjari chako · hakuna data inayopakiwa',
+
+    stampSettingsTitle: '⚙ Mipangilio ya Chapa',
+    settingPosition:    'Nafasi',
+    posBottomRight:     'Chini Kulia',
+    posBottomLeft:      'Chini Kushoto',
+    posTopRight:        'Juu Kulia',
+    posTopLeft:         'Juu Kushoto',
+    posBottomCenter:    'Chini Katikati',
+    settingFontSize:    'Ukubwa wa Herufi',
+    settingTextColor:   'Rangi ya Maandishi',
+    settingBgOpacity:   'Uwazi wa Mandharinyuma',
+    settingPadding:     'Nafasi ya Ndani',
+    settingQuality:     'Ubora wa Matokeo',
+    qualityHigh:        'Juu (97%)',
+    qualityMed:         'Kati (85%)',
+    qualityLow:         'Chini (70%)',
+    inclDate:           'Jumuisha Tarehe',
+    inclTime:           'Jumuisha Muda',
+    inclGPS:            'Jumuisha Kuratibu za GPS',
+    inclModel:          'Jumuisha Mfano wa Kamera',
+
+    toolbarCount:     'picha zilizoshughulikiwa',
+    btnStampAll:      '🖨 Chapa na Pakua Zote',
+    btnCSV:           '⬇ Hamisha CSV',
+    btnCopyAll:       '⎘ Nakili Zote',
+    btnClear:         '✕ Futa',
+
+    btnClose:           'Funga',
+    btnDownloadStamped: '⬇ Pakua Picha Iliyochapishwa',
+
+    labelDate:    'Tarehe',
+    labelTime:    'Muda',
+    labelLat:     'Latitudo',
+    labelLng:     'Longitudo',
+    labelDecCoord:'Kuratibu za Desimali',
+    labelCamera:  'Kamera',
+    btnPreview:   '👁 Hakikisha Chapa',
+    btnDownload:  '⬇ Pakua Iliyochapishwa',
+    btnCopyDec:   'nakili des.',
+    btnCopy:      'nakili',
+    btnCopied:    '✓ imenakiliwa',
+    openMaps:     '🗺 Fungua katika Google Maps',
+    noExif:       '⚠ Hakuna metadata ya EXIF. Faili huenda liliondolewa metadata.',
+    statusReading:'inasoma…',
+    statusGPS:    'gps + tarehe',
+    statusDate:   'tarehe tu',
+    statusPartial:'sehemu',
+    statusNoExif: 'hakuna exif',
+
+    stampDate:  'Tarehe: ',
+    stampTime:  'Muda:   ',
+    stampGPS:   'GPS:    ',
+    stampModel: 'Mfano:  ',
+
+    alertNoExif: 'Hakuna picha zenye data ya EXIF za kuchapisha.',
+    alertCopied: 'Imenakiliwa kwenye ubao wa kunakili!',
+    alertImgErr: 'Haikuweza kutengeneza picha. Jaribu kivinjari kingine.',
+  },
+
+  ln: {
+    /* Lingala */
+    subtitle:         '// kobimisa · kotia molɔngɔ · kokitisa  ·  mokolo · ngonga · GPS',
+    dropTitle:        'Tia bifoto awa',
+    dropOr:           'to',
+    dropBrowse:       'tala mafichie',
+    dropFormats:      'JPEG, TIFF, HEIC esalisami',
+    footer:           'esalaka kaka na navigateur na yo · data ezali kotindama ata moke te',
+
+    stampSettingsTitle: '⚙ Mitindo ya Molɔngɔ',
+    settingPosition:    'Esika',
+    posBottomRight:     'Nse na Loboko ya Mobali',
+    posBottomLeft:      'Nse na Loboko ya Mwasi',
+    posTopRight:        'Likoló na Loboko ya Mobali',
+    posTopLeft:         'Likoló na Loboko ya Mwasi',
+    posBottomCenter:    'Nse Katikati',
+    settingFontSize:    'Bonene ya Makomi',
+    settingTextColor:   'Rɛngi ya Makomi',
+    settingBgOpacity:   'Bomonisani ya Nsima',
+    settingPadding:     'Esika ya Kati',
+    settingQuality:     'Bolamu ya Kobima',
+    qualityHigh:        'Makasi (97%)',
+    qualityMed:         'Katikati (85%)',
+    qualityLow:         'Moke (70%)',
+    inclDate:           'Tia Mokolo',
+    inclTime:           'Tia Ngonga',
+    inclGPS:            'Tia Kuratibu ya GPS',
+    inclModel:          'Tia Modèle ya Kamera',
+
+    toolbarCount:     'bifoto esalami',
+    btnStampAll:      '🖨 Tia Molɔngɔ mpe Kitisa Nyonso',
+    btnCSV:           '⬇ Bimisa CSV',
+    btnCopyAll:       '⎘ Kopya Nyonso',
+    btnClear:         '✕ Suka',
+
+    btnClose:           'Ziba',
+    btnDownloadStamped: '⬇ Kitisa Foto ya Molɔngɔ',
+
+    labelDate:    'Mokolo',
+    labelTime:    'Ngonga',
+    labelLat:     'Latitudo',
+    labelLng:     'Longitudo',
+    labelDecCoord:'Kuratibu ya Désimale',
+    labelCamera:  'Kamera',
+    btnPreview:   '👁 Tala Molɔngɔ',
+    btnDownload:  '⬇ Kitisa ya Molɔngɔ',
+    btnCopyDec:   'kopya dés.',
+    btnCopy:      'kopya',
+    btnCopied:    '✓ ekopiami',
+    openMaps:     '🗺 Fungola na Google Maps',
+    noExif:       '⚠ Metadata ya EXIF ezali te. Fichier oyo esukisami metadata.',
+    statusReading:'kotanga…',
+    statusGPS:    'gps + mokolo',
+    statusDate:   'mokolo kaka',
+    statusPartial:'ndambo',
+    statusNoExif: 'exif ezali te',
+
+    stampDate:  'Mokolo: ',
+    stampTime:  'Ngonga: ',
+    stampGPS:   'GPS:    ',
+    stampModel: 'Modèle: ',
+
+    alertNoExif: 'Bifoto na data ya EXIF ezali te.',
+    alertCopied: 'Ekopiami na prese-papier!',
+    alertImgErr: 'Foto esalamaki te. Sala essai na navigateur mosusu.',
+  }
+};
+
+/* Active language code; defaults to English */
+let currentLang = 'en';
+
+/**
+ * Switch the UI language.
+ * Updates every element that carries a [data-i18n] attribute, then
+ * highlights the matching language button.
+ * @param {string} code - One of 'en', 'fr', 'sw', 'ln'
+ */
+function setLang(code) {
+  if (!LANGS[code]) return;
+  currentLang = code;
+  const t = LANGS[code];
+
+  /* Re-render all static translatable elements */
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (t[key] !== undefined) el.textContent = t[key];
+  });
+
+  /* Mark the active button */
+  document.querySelectorAll('.lang-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.textContent === code.toUpperCase());
+  });
+
+  /* Re-render any already-loaded image cards so labels update */
+  allResults.forEach(r => renderCard(r.id, r));
+}
+
+/** Shorthand: get translated string for the current language */
+function t(key) { return LANGS[currentLang][key] || key; }
+
+
+/* ─────────────────────────────────────────────────────────────────────────
+   SECTION 2 – DOM REFERENCES & GLOBAL STATE
+   ───────────────────────────────────────────────────────────────────────── */
+const dropZone    = document.getElementById('dropZone');
+const fileInput   = document.getElementById('fileInput');
+const fileQueue   = document.getElementById('fileQueue');
+const toolbar     = document.getElementById('toolbar');
+const countLabel  = document.getElementById('countLabel');
+const stampSettings = document.getElementById('stampSettings');
+
+/* Array holding parsed data + image element for every processed file */
+let allResults = [];
+
+/* Function stored here so the modal "Download" button can trigger it */
+let modalDownloadFn = null;
+
+
+/* ─────────────────────────────────────────────────────────────────────────
+   SECTION 3 – FILE INPUT & DRAG-AND-DROP
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Add drag-over highlight class while a file is dragged above the zone */
+dropZone.addEventListener('dragover', e => {
+  e.preventDefault(); // required to allow drop
+  dropZone.classList.add('drag-over');
+});
+
+/* Remove highlight when drag leaves the zone */
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+
+/* Handle files dropped onto the zone */
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  handleFiles([...e.dataTransfer.files]);
+});
+
+/* Clicking the zone (but not the "browse" <strong>) opens the file picker */
+dropZone.addEventListener('click', e => {
+  if (e.target.tagName !== 'STRONG') fileInput.click();
+});
+
+/* Files chosen via the native file picker */
+fileInput.addEventListener('change', e => handleFiles([...e.target.files]));
+
+/**
+ * Filter the dropped/chosen files to images only, then process each one.
+ * @param {File[]} files
+ */
+function handleFiles(files) {
+  const imgs = files.filter(f => f.type.startsWith('image/'));
+  if (!imgs.length) return;
+  /* Reveal the card list, toolbar and stamp settings on first load */
+  fileQueue.classList.add('visible');
+  toolbar.classList.add('visible');
+  stampSettings.classList.add('visible');
+  imgs.forEach(processFile);
+}
+
+
+/* ─────────────────────────────────────────────────────────────────────────
+   SECTION 4 – IMAGE PROCESSING
+   ───────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Create a card placeholder for the file, start loading the image element
+ * for later canvas stamping, then kick off async EXIF extraction.
+ * @param {File} file
+ */
+function processFile(file) {
+  /* Unique DOM id so we can find this card later */
+  const id = 'fc_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+
+  /* Object URL lets us display the image in <img> and <canvas> without
+     uploading it anywhere */
+  const thumbURL = URL.createObjectURL(file);
+
+  /* Pre-load the full-resolution image so it is ready when we stamp */
+  const imgEl = new Image();
+  imgEl.src = thumbURL;
+
+  /* Build the card skeleton with a "reading…" badge */
+  const card = document.createElement('div');
+  card.className = 'file-card';
+  card.id = id;
+  card.style.animationDelay = (allResults.length * 50) + 'ms'; // staggered entrance
+  card.innerHTML = `
+    <div class="file-card-header" onclick="toggleCard('${id}')">
+      <img class="file-thumb" src="${thumbURL}" alt="">
+      <div class="file-info">
+        <div class="file-name">${escHtml(file.name)}</div>
+        <div class="file-size">${formatSize(file.size)}</div>
+      </div>
+      <span class="file-status pulse status-partial" id="status_${id}">${t('statusReading')}</span>
+      <span class="chevron">▼</span>
+    </div>
+    <div class="file-card-body" id="body_${id}">
+      <div style="font-family:var(--mono);font-size:12px;color:var(--muted);padding-top:12px;">${t('statusReading')}</div>
+    </div>`;
+  fileQueue.appendChild(card);
+
+  /* EXIF.getData is asynchronous; result available inside the callback via
+     EXIF.getAllTags(this) */
+  EXIF.getData(file, function() {
+    const data   = EXIF.getAllTags(this);
+    const result = parseExif(data);
+    result.fileName = file.name;
+    result.fileSize  = formatSize(file.size);
+    result.imgEl     = imgEl;   // keep image ref for canvas stamping
+    result.id        = id;
+    allResults.push(result);
+    renderCard(id, result);
+    countLabel.textContent = allResults.length;
+  });
+}
+
+/**
+ * Extract the relevant fields from the raw EXIF tag map.
+ * @param  {object} data  - raw tags from EXIF.getAllTags()
+ * @returns {object}      - normalised result object
+ */
+function parseExif(data) {
+  const r = {
+    date: null, time: null,
+    lat: null, lng: null, latRef: null, lngRef: null,
+    latDec: null, lngDec: null,
+    make: null, model: null,
+    hasExif: false
+  };
+
+  /* Date / time: prefer DateTimeOriginal (when shutter was pressed),
+     fall back to DateTime (file-write time) or DateTimeDigitized */
+  const dtOrig = data.DateTimeOriginal || data.DateTime || data.DateTimeDigitized;
+  if (dtOrig) {
+    r.hasExif = true;
+    const parts = dtOrig.split(' ');
+    /* EXIF stores dates as "YYYY:MM:DD" – replace colons for ISO 8601 */
+    r.date = parts[0] ? parts[0].replace(/:/g, '-') : null;
+    r.time = parts[1] || null;
+  }
+
+  /* GPS: stored in degrees-minutes-seconds arrays */
+  if (data.GPSLatitude && data.GPSLongitude) {
+    r.hasExif = true;
+    r.latRef  = data.GPSLatitudeRef  || 'N';
+    r.lngRef  = data.GPSLongitudeRef || 'E';
+    r.lat     = dmsToStr(data.GPSLatitude,  r.latRef);
+    r.lng     = dmsToStr(data.GPSLongitude, r.lngRef);
+    r.latDec  = dmsToDecimal(data.GPSLatitude,  r.latRef);
+    r.lngDec  = dmsToDecimal(data.GPSLongitude, r.lngRef);
+  }
+
+  /* Camera make / model */
+  r.make  = data.Make  || null;
+  r.model = data.Model || null;
+  if (r.make || r.model) r.hasExif = true;
+
+  return r;
+}
+
+/**
+ * Convert a DMS (degrees/minutes/seconds) GPS array to a human-readable string.
+ * Example output: "48° 51' 30.00" N"
+ * @param {Array}  dms - [degrees, minutes, seconds] (each may be a rational)
+ * @param {string} ref - 'N', 'S', 'E', or 'W'
+ */
+function dmsToStr(dms, ref) {
+  if (!dms || dms.length < 3) return null;
+  const d = toFloat(dms[0]), m = toFloat(dms[1]), s = toFloat(dms[2]);
+  return `${d}° ${m}' ${s.toFixed(2)}" ${ref}`;
+}
+
+/**
+ * Convert a DMS GPS array to a signed decimal degree number (6 d.p.).
+ * Southern latitudes and western longitudes become negative.
+ * @param {Array}  dms
+ * @param {string} ref
+ */
+function dmsToDecimal(dms, ref) {
+  if (!dms || dms.length < 3) return null;
+  const d = toFloat(dms[0]), m = toFloat(dms[1]), s = toFloat(dms[2]);
+  let dec = d + m / 60 + s / 3600;
+  if (ref === 'S' || ref === 'W') dec = -dec;
+  return dec.toFixed(6);
+}
+
+/**
+ * Normalise an EXIF rational value (numerator/denominator object) to a
+ * plain JavaScript float.
+ * @param {number|object} v
+ */
+function toFloat(v) {
+  if (typeof v === 'number') return v;
+  if (v && v.numerator !== undefined) return v.numerator / (v.denominator || 1);
+  return parseFloat(v) || 0;
+}
+
+
+/* ─────────────────────────────────────────────────────────────────────────
+   SECTION 5 – CARD RENDERING
+   Builds the expanded HTML for each image card using the parsed EXIF data.
+   Called once when EXIF parsing finishes, and again whenever the language
+   is changed (so labels update).
+   ───────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Populate (or re-populate) the body and status badge of a file card.
+ * @param {string} id - DOM id of the card
+ * @param {object} r  - parsed EXIF result object
+ */
+function renderCard(id, r) {
+  const statusEl = document.getElementById('status_' + id);
+  const bodyEl   = document.getElementById('body_'   + id);
+  if (!statusEl || !bodyEl) return; // card may have been cleared
+
+  statusEl.classList.remove('pulse', 'status-partial');
+
+  /* ── No EXIF found ─────────────────────────────────────────────────── */
+  if (!r.hasExif) {
+    statusEl.classList.add('status-none');
+    statusEl.textContent = t('statusNoExif');
+    bodyEl.innerHTML = `<div class="no-exif">${t('noExif')}</div>`;
+    return;
+  }
+
+  /* ── EXIF present: set badge text ──────────────────────────────────── */
+  const hasGPS  = r.latDec && r.lngDec;
+  const hasDate = r.date || r.time;
+  statusEl.classList.add('status-ok');
+  statusEl.textContent = hasGPS ? t('statusGPS') : (hasDate ? t('statusDate') : t('statusPartial'));
+
+  /* Google Maps deep-link for the GPS coordinates */
+  const mapsUrl = hasGPS ? `https://www.google.com/maps?q=${r.latDec},${r.lngDec}` : null;
+
+  bodyEl.innerHTML = `
+    <div class="data-grid">
+
+      <!-- Date cell -->
+      <div class="data-cell">
+        <div class="data-label">${t('labelDate')}</div>
+        <div class="data-value accent">${r.date || `<span class="empty">N/A</span>`}</div>
+        ${r.date ? `<button class="copy-btn" onclick="copyText('${r.date}',this)">${t('btnCopy')}</button>` : ''}
+      </div>
+
+      <!-- Time cell -->
+      <div class="data-cell">
+        <div class="data-label">${t('labelTime')}</div>
+        <div class="data-value accent">${r.time || `<span class="empty">N/A</span>`}</div>
+        ${r.time ? `<button class="copy-btn" onclick="copyText('${r.time}',this)">${t('btnCopy')}</button>` : ''}
+      </div>
+
+      <!-- Latitude cell -->
+      <div class="data-cell">
+        <div class="data-label">${t('labelLat')}</div>
+        <div class="data-value accent2">${r.lat || `<span class="empty">N/A</span>`}</div>
+        ${r.lat ? `<button class="copy-btn" onclick="copyText('${r.latDec}',this)">${t('btnCopyDec')}</button>` : ''}
+      </div>
+
+      <!-- Longitude cell -->
+      <div class="data-cell">
+        <div class="data-label">${t('labelLng')}</div>
+        <div class="data-value accent2">${r.lng || `<span class="empty">N/A</span>`}</div>
+        ${r.lng ? `<button class="copy-btn" onclick="copyText('${r.lngDec}',this)">${t('btnCopyDec')}</button>` : ''}
+      </div>
+
+      <!-- Decimal coordinates + Maps link (full width, GPS only) -->
+      ${hasGPS ? `
+      <div class="data-cell full-width">
+        <div class="data-label">${t('labelDecCoord')}</div>
+        <div class="data-value">${r.latDec}, ${r.lngDec}</div>
+        <button class="copy-btn" onclick="copyText('${r.latDec},${r.lngDec}',this)">${t('btnCopy')}</button>
+        <a class="map-link" href="${mapsUrl}" target="_blank">${t('openMaps')}</a>
+      </div>` : ''}
+
+      <!-- Camera make / model (full width, if available) -->
+      ${r.make || r.model ? `
+      <div class="data-cell full-width">
+        <div class="data-label">${t('labelCamera')}</div>
+        <div class="data-value">${[r.make, r.model].filter(Boolean).join(' · ')}</div>
+      </div>` : ''}
+
+    </div>
+
+    <!-- Per-card action buttons -->
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
+      <button class="btn btn-stamp btn-sm"     onclick="previewStamp('${id}')">${t('btnPreview')}</button>
+      <button class="btn btn-secondary btn-sm" onclick="downloadStamped('${id}')">${t('btnDownload')}</button>
+    </div>`;
+
+  /* Auto-expand the very first card so the user sees data immediately */
+  if (allResults.length === 1 && !document.getElementById(id).classList.contains('expanded')) {
+    toggleCard(id);
+  }
+}
+
+
+/* ─────────────────────────────────────────────────────────────────────────
+   SECTION 6 – STAMP ENGINE
+   Draws the EXIF overlay text onto a <canvas> copy of the image.
+   The canvas is then either shown in the preview modal or downloaded.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Read all stamp setting controls and return a plain settings object.
+ * @returns {object}
+ */
+function getSettings() {
+  return {
+    pos:       document.getElementById('stampPos').value,
+    fontSize:  parseInt(document.getElementById('stampFontSize').value),
+    color:     document.getElementById('stampColor').value,
+    bgOpacity: parseInt(document.getElementById('stampBgOpacity').value) / 100,
+    padding:   parseInt(document.getElementById('stampPadding').value),
+    quality:   parseFloat(document.getElementById('stampQuality').value),
+    inclDate:  document.getElementById('inclDate').checked,
+    inclTime:  document.getElementById('inclTime').checked,
+    inclGPS:   document.getElementById('inclGPS').checked,
+    inclModel: document.getElementById('inclModel').checked,
+  };
+}
+
+/**
+ * Build the array of text lines to burn into the stamp.
+ * Each enabled field always appears; missing values show "N/A".
+ * Label prefixes come from the current language dictionary.
+ * @param {object} r - EXIF result
+ * @param {object} s - stamp settings
+ * @returns {string[]}
+ */
+function buildLines(r, s) {
+  const lines = [];
+  if (s.inclDate)  lines.push(t('stampDate')  + (r.date  || 'N/A'));
+  if (s.inclTime)  lines.push(t('stampTime')  + (r.time  || 'N/A'));
+  if (s.inclGPS)   lines.push(t('stampGPS')   + (r.latDec && r.lngDec ? r.latDec + ', ' + r.lngDec : 'N/A'));
+  if (s.inclModel) lines.push(t('stampModel') + ' ' + (r.model || r.make || 'N/A'));
+  return lines;
+}
+
+/**
+ * Draw the image + stamp overlay onto the provided <canvas> element.
+ * Returns a Promise that resolves with the canvas once rendering is done.
+ * @param {object}          r      - EXIF result (contains .imgEl)
+ * @param {HTMLCanvasElement} canvas
+ * @returns {Promise<HTMLCanvasElement>}
+ */
+function stampToCanvas(r, canvas) {
+  const s   = getSettings();
+  const img = r.imgEl;
+
+  return new Promise(resolve => {
+    function draw() {
+      /* Match canvas size exactly to the original image resolution */
+      const W = img.naturalWidth  || img.width  || 800;
+      const H = img.naturalHeight || img.height || 600;
+      canvas.width  = W;
+      canvas.height = H;
+
+      const ctx = canvas.getContext('2d');
+      /* Step 1: draw the original image at full resolution */
+      ctx.drawImage(img, 0, 0, W, H);
+
+      const lines = buildLines(r, s);
+      if (!lines.length) { resolve(canvas); return; }
+
+      /* Scale font and padding proportionally to image width.
+         Reference width 1200 px → multiplier 1.0 */
+      const scale = Math.max(0.5, W / 1200);
+      const fs    = Math.round(s.fontSize * scale * 1.6); // font-size in px
+      const pad   = Math.round(s.padding  * scale * 1.6); // inner padding in px
+      const lineH = fs * 1.5;                              // line height
+
+      ctx.font          = `bold ${fs}px 'Courier New', monospace`;
+      ctx.textBaseline  = 'top';
+
+      /* Measure the widest text line to determine the background box size */
+      const maxW = Math.max(...lines.map(l => ctx.measureText(l).width));
+      const boxW = maxW + pad * 2;
+      const boxH = lines.length * lineH + pad * 1.2;
+      const margin = pad;
+
+      /* Calculate top-left corner (x, y) of the stamp box */
+      let x, y;
+      switch (s.pos) {
+        case 'bottom-right':  x = W - boxW - margin; y = H - boxH - margin; break;
+        case 'bottom-left':   x = margin;             y = H - boxH - margin; break;
+        case 'top-right':     x = W - boxW - margin; y = margin;             break;
+        case 'top-left':      x = margin;             y = margin;             break;
+        case 'bottom-center': x = (W - boxW) / 2;    y = H - boxH - margin; break;
+        default:              x = W - boxW - margin; y = H - boxH - margin;
+      }
+
+      /* Step 2: draw semi-transparent background box */
+      ctx.save();
+      ctx.globalAlpha = s.bgOpacity;
+      ctx.fillStyle   = '#000';
+      roundRect(ctx, x, y, boxW, boxH, fs * 0.3); // rounded corners
+      ctx.fill();
+      ctx.restore();
+
+      /* Step 3: draw text lines on top of the background box */
+      ctx.globalAlpha = 1;
+      ctx.fillStyle   = s.color;
+      ctx.font        = `bold ${fs}px 'Courier New', monospace`;
+      lines.forEach((line, i) => {
+        ctx.fillText(line, x + pad, y + pad * 0.6 + i * lineH);
+      });
+
+      resolve(canvas);
+    }
+
+    /* If the image is already loaded use it immediately, otherwise wait */
+    if (img.complete && img.naturalWidth > 0) { draw(); }
+    else { img.onload = draw; img.onerror = () => resolve(canvas); }
+  });
+}
+
+/**
+ * Draw a rounded rectangle path on the given canvas context.
+ * (CanvasRenderingContext2D.roundRect() is not supported in all browsers yet.)
+ */
+function roundRect(ctx, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2); // clamp radius so it fits
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y,   x + w, y + r);
+  ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x,   y + h, x,   y + h - r);
+  ctx.lineTo(x, y + r);     ctx.quadraticCurveTo(x,   y,     x + r, y);
+  ctx.closePath();
+}
+
+/** Look up a result object by its card DOM id */
+function getById(id) { return allResults.find(r => r.id === id); }
+
+/**
+ * Stamp the image and show it inside the preview modal.
+ * Stores a download callback so the modal's Download button works.
+ * @param {string} id - card id
+ */
+async function previewStamp(id) {
+  const r = getById(id);
+  if (!r) return;
+  const canvas = document.getElementById('modalCanvas');
+  document.getElementById('modalTitle').textContent = 'Preview — ' + r.fileName;
+  await stampToCanvas(r, canvas);
+  document.getElementById('previewModal').classList.add('open');
+  /* Capture current settings for the download so they match the preview */
+  const q    = getSettings().quality;
+  const name = r.fileName;
+  modalDownloadFn = () => triggerDownload(canvas, name, q);
+}
+
+/**
+ * Stamp a single image and immediately trigger a browser download.
+ * @param {string} id - card id
+ */
+async function downloadStamped(id) {
+  const r = getById(id);
+  if (!r) return;
+  const canvas = document.createElement('canvas');
+  await stampToCanvas(r, canvas);
+  triggerDownload(canvas, r.fileName, getSettings().quality);
+}
+
+/**
+ * Stamp every image that has EXIF data, downloading each in sequence
+ * with a short delay to avoid browser popup-blocking.
+ */
+async function stampAll() {
+  const eligible = allResults.filter(r => r.hasExif);
+  if (!eligible.length) { alert(t('alertNoExif')); return; }
+  for (const r of eligible) {
+    const canvas = document.createElement('canvas');
+    await stampToCanvas(r, canvas);
+    triggerDownload(canvas, r.fileName, getSettings().quality);
+    await new Promise(res => setTimeout(res, 150)); // brief pause between downloads
+  }
+}
+
+/**
+ * Convert a canvas to a Blob and trigger a file download.
+ * The output filename gets a "_stamped" suffix so originals are not overwritten.
+ * @param {HTMLCanvasElement} canvas
+ * @param {string}            originalName
+ * @param {number}            quality - JPEG quality 0–1
+ */
+function triggerDownload(canvas, originalName, quality) {
+  const isJpeg = /\.(jpg|jpeg)$/i.test(originalName);
+  const mime   = isJpeg ? 'image/jpeg' : 'image/png';
+  const newName = originalName.replace(/(\.[^.]+)$/, '_stamped$1');
+  canvas.toBlob(blob => {
+    if (!blob) { alert(t('alertImgErr')); return; }
+    const a = document.createElement('a');
+    a.href     = URL.createObjectURL(blob);
+    a.download = newName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }, mime, quality);
+}
+
+/** Download the currently previewed stamp from the modal */
+function downloadFromModal() { if (modalDownloadFn) modalDownloadFn(); }
+
+/** Close the preview modal */
+function closeModal() { document.getElementById('previewModal').classList.remove('open'); }
+
+/* Clicking on the dark overlay (outside the white modal box) also closes it */
+document.getElementById('previewModal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+
+
+/* ─────────────────────────────────────────────────────────────────────────
+   SECTION 7 – GENERAL UTILITY FUNCTIONS
+   ───────────────────────────────────────────────────────────────────────── */
+
+/** Toggle the expanded/collapsed state of a file card */
+function toggleCard(id) { document.getElementById(id).classList.toggle('expanded'); }
+
+/**
+ * Copy a text string to the clipboard and show visual feedback on the button.
+ * @param {string}      text
+ * @param {HTMLElement} btn  - the button that was clicked
+ */
+function copyText(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = t('btnCopied');
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = t('btnCopy');
+      btn.classList.remove('copied');
+    }, 1500);
+  });
+}
+
+/** Copy a tab-delimited summary of all results to the clipboard */
+function copyAll() {
+  const lines = allResults.map(r =>
+    `${r.fileName}\t${t('labelDate')}: ${r.date||'N/A'}\t${t('labelTime')}: ${r.time||'N/A'}\tLat: ${r.latDec||'N/A'}\tLng: ${r.lngDec||'N/A'}`
+  ).join('\n');
+  navigator.clipboard.writeText(lines).then(() => alert(t('alertCopied')));
+}
+
+/** Export all results as a downloadable CSV file */
+function exportCSV() {
+  const header = 'Filename,Date,Time,Latitude (DMS),Longitude (DMS),Latitude (Dec),Longitude (Dec),Camera Make,Camera Model';
+  const rows = allResults.map(r => [
+    `"${(r.fileName||'').replace(/"/g,'""')}"`,
+    r.date||'', r.time||'',
+    `"${r.lat||''}"`, `"${r.lng||''}"`,
+    r.latDec||'', r.lngDec||'',
+    `"${(r.make||'').replace(/"/g,'""')}"`,
+    `"${(r.model||'').replace(/"/g,'""')}"`
+  ].join(','));
+  const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = 'exif_data.csv';
+  a.click();
+}
+
+/** Reset the tool: clear all results and hide panels */
+function clearAll() {
+  allResults = [];
+  fileQueue.innerHTML = '';
+  fileQueue.classList.remove('visible');
+  toolbar.classList.remove('visible');
+  stampSettings.classList.remove('visible');
+  fileInput.value = ''; // reset native picker so same files can be re-added
+}
+
+/**
+ * Format a file size in bytes to a human-readable string.
+ * @param {number} b - bytes
+ */
+function formatSize(b) {
+  if (b < 1024)    return b + ' B';
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1048576).toFixed(2) + ' MB';
+}
+
+/**
+ * Escape a string for safe insertion into HTML (prevents XSS via filenames).
+ * @param {string} s
+ */
+function escHtml(s) {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+</script>
+</body>
+</html>
