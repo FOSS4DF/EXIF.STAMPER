@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" type="image/x-icon" href="https://www.peacekeeping.ch/setup/favicons/favicon-32x32.png">
+<title>EXIF Stamper</title>
+<style>
+:root{
+  --bg:#F2F4F5; --surface:#FFFFFF; --ink:#12171A; --muted:#69747C;
+  --rule:#DDE2E5; --rule-strong:#C2CACF; --accent:#125A63; --accent-ink:#FFFFFF;
+  --warn:#9A5B00; --warn-bg:#FBF0DE; --danger:#8E2C21;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+html[data-theme="dark"]{
+  --bg:#0E1113; --surface:#171B1E; --ink:#E7EAEC; --muted:#8B959C;
+  --rule:#262B2F; --rule-strong:#394247; --accent:#4FA8A4; --accent-ink:#06181A;
+  --warn:#E0AC63; --warn-bg:#2A2015; --danger:#E0847A;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--ink); font-family:var(--ui);
+  font-size:15px; line-height:1.45; -webkit-text-size-adjust:100%;
+  padding-bottom:calc(84px + env(safe-area-inset-bottom));
+}
+.wrap{max-width:760px;margin:0 auto;padding:0 20px}
+[hidden]{display:none!important}
+
+/* ---------- header ---------- */
+header{border-bottom:1px solid var(--rule);background:var(--surface)}
+.hbar{display:flex;align-items:center;gap:12px;padding:14px 0}
+.mark{width:26px;height:26px;flex:none;display:block}
+.mark svg{width:26px;height:26px;display:block;stroke:var(--ink);fill:none;stroke-width:1.5;stroke-linecap:square;stroke-linejoin:miter}
+h1{font-size:15px;font-weight:650;letter-spacing:-.01em;margin:0;flex:1;min-width:0}
+h1 small{display:block;font-weight:400;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin-top:1px}
+.ctrl{display:flex;gap:8px;align-items:center}
+select,input,button{font-family:inherit;font-size:14px;color:var(--ink)}
+select.lang{appearance:none;-webkit-appearance:none;background:transparent;border:1px solid var(--rule-strong);
+  border-radius:3px;padding:6px 8px;font-size:12px;letter-spacing:.06em;font-weight:600}
+.icon-btn{background:transparent;border:1px solid var(--rule-strong);border-radius:3px;width:32px;height:31px;
+  display:grid;place-items:center;cursor:pointer;padding:0}
+.icon-btn:hover{border-color:var(--ink)}
+.icon-btn svg{width:15px;height:15px;stroke:var(--ink);fill:none;stroke-width:1.6}
+
+/* ---------- sections & fields ---------- */
+section{margin-top:22px}
+.eyebrow{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:9px}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:520px){.fields{grid-template-columns:1fr}}
+.field label{display:block;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:5px}
+.field input,.field select{width:100%;background:var(--surface);border:1px solid var(--rule-strong);border-radius:3px;
+  padding:10px 11px;font-size:15px;font-family:var(--mono)}
+.field select{appearance:none;-webkit-appearance:none;font-family:var(--ui);font-size:14px;cursor:pointer}
+.field input:focus,.field select:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent)}
+
+/* ---------- add ---------- */
+.add{margin-top:0;width:100%;display:flex;align-items:center;justify-content:center;gap:9px;
+  background:var(--surface);border:1px dashed var(--rule-strong);border-radius:3px;padding:18px;
+  cursor:pointer;font-size:15px;font-weight:600;color:var(--ink)}
+.add:hover,.add.drag{border-color:var(--accent);color:var(--accent)}
+.add:disabled{opacity:.4;cursor:default;border-color:var(--rule-strong);color:var(--ink)}
+.add svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7}
+.hint{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.5}
+
+/* ---------- list ---------- */
+.count{display:flex;align-items:baseline;justify-content:space-between;gap:10px;border-bottom:1px solid var(--rule);padding-bottom:7px;margin-bottom:2px}
+.count b{font-family:var(--mono);font-size:12px;font-weight:600}
+.linkbtn{background:none;border:none;padding:0;color:var(--muted);font-size:12px;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.linkbtn:hover{color:var(--danger)}
+.empty{border:1px solid var(--rule);border-radius:3px;background:var(--surface);padding:26px 18px;text-align:center;color:var(--muted);font-size:13px}
+.row{display:grid;grid-template-columns:22px 1fr auto;gap:12px;padding:12px 0;border-bottom:1px solid var(--rule);align-items:center}
+.idx{font-family:var(--mono);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.fname{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fsize{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:1px}
+.rm{background:none;border:none;padding:0;color:var(--muted);font-size:11px;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.rm:hover{color:var(--danger)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:11px;margin:0}
+.kv dt{color:var(--muted);letter-spacing:.06em;text-transform:uppercase;font-size:9.5px;font-weight:600;padding-top:1.5px}
+.kv dd{margin:0;font-family:var(--mono);font-size:11px;word-break:break-all;line-height:1.4}
+.miss{color:var(--warn);background:var(--warn-bg);padding:0 4px;border-radius:2px;font-family:var(--ui);font-size:10px;letter-spacing:.04em}
+
+/* ---------- panels & buttons ---------- */
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:3px;padding:16px 18px}
+.ptitle{font-size:15px;font-weight:650;margin:0 0 4px}
+.pdesc{font-size:13px;color:var(--muted);margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;align-items:center}
+.chip{font-family:var(--mono);font-size:11px;border:1px solid var(--rule-strong);border-radius:2px;padding:2px 6px}
+.ghost{display:inline-flex;align-items:center;gap:6px;background:none;border:1px solid var(--rule-strong);
+  border-radius:3px;padding:6px 10px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;
+  font-weight:600;color:var(--muted);cursor:pointer;text-decoration:none}
+.ghost:hover{color:var(--ink);border-color:var(--ink)}
+.ghost:disabled{opacity:.3;cursor:default}
+.ghost svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:1.8}
+.err{border:1px solid var(--danger);color:var(--danger);border-radius:3px;padding:10px 12px;font-size:13px;margin-top:12px;background:var(--surface)}
+
+/* ---------- bar ---------- */
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--rule);
+  padding:12px 20px calc(12px + env(safe-area-inset-bottom));z-index:5}
+.prog{position:absolute;left:0;top:-1px;height:2px;width:0;background:var(--accent);transition:width .3s ease}
+.bar-in{max-width:760px;margin:0 auto;display:flex;gap:12px;align-items:center}
+.status{flex:1;font-size:11.5px;color:var(--muted);font-family:var(--mono);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.go{background:var(--accent);color:var(--accent-ink);border:none;border-radius:3px;padding:13px 22px;
+  font-size:15px;font-weight:650;cursor:pointer;letter-spacing:.01em;white-space:nowrap}
+.go:disabled{opacity:.4;cursor:default}
+.go:focus-visible,.add:focus-visible,.icon-btn:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+footer{margin:26px 0 6px;font-size:11px;color:var(--muted);text-align:center;line-height:1.6}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+.sgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media(max-width:620px){.sgrid{grid-template-columns:1fr 1fr}}
+.field input[type=range]{padding:0;height:38px;border:none;background:transparent;accent-color:var(--accent)}
+.field input[type=color]{padding:3px;height:40px;cursor:pointer}
+.rv{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:-4px}
+.checks{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:12px;padding-top:12px;border-top:1px solid var(--rule)}
+.checks label{display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;user-select:none}
+.checks input{width:14px;height:14px;accent-color:var(--accent);margin:0}
+.item{display:grid;grid-template-columns:14px 92px 1fr;gap:12px;padding:14px 0;border-bottom:1px solid var(--rule);align-items:start}
+@media(max-width:520px){.item{grid-template-columns:14px 68px 1fr;gap:9px}}
+.item .idx{padding-top:2px}
+.thumb{width:100%;aspect-ratio:1;object-fit:cover;background:var(--rule);border:1px solid var(--rule-strong);display:block}
+.meta{min-width:0}
+.meta .fname{margin-bottom:6px}
+.actions{grid-column:3;display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin-top:8px}
+.bar .ghost{padding:9px 10px}
+@media(max-width:560px){.bar .ghost{display:none}}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:20;display:flex;align-items:center;justify-content:center;padding:20px}
+.modal-in{background:var(--surface);border:1px solid var(--rule);border-radius:3px;max-width:760px;width:100%;max-height:92vh;overflow:auto;padding:18px}
+.modal-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.modal-head .fname{flex:1}
+.modal canvas{max-width:100%;display:block;border:1px solid var(--rule-strong)}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap hbar">
+    <div class="mark" aria-hidden="true"><svg viewBox="0 0 26 26"><rect x=".75" y=".75" width="24.5" height="24.5"/><path d="M5 15.5l4-4 3.5 3.5"/><rect x="12.5" y="15" width="8.5" height="6"/><path d="M14.5 18h4.5"/></svg></div>
+    <h1><span id="t-app">EXIF Stamper</span><small id="t-sub">Hors ligne · EXIF · Tampon</small></h1>
+    <div class="ctrl">
+      <select class="lang" id="lang" aria-label="Langue">
+        <option value="fr">FR</option><option value="en">EN</option>
+        <option value="sw">SW</option><option value="ln">LN</option>
+      </select>
+      <button class="icon-btn" id="theme" type="button" aria-label="Theme">
+        <svg id="ticon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section>
+    <div class="eyebrow" id="t-images"></div>
+    <button class="add" id="add" type="button">
+      <svg viewBox="0 0 24 24"><path d="M3 8.5h4l1.6-2.5h6.8L17 8.5h4v11H3z"/><circle cx="12" cy="13.5" r="3.6"/></svg>
+      <span id="t-add"></span>
+    </button>
+    <input type="file" id="file" accept="image/*" multiple class="sr">
+    <p class="hint" id="t-hint"></p>
+  </section>
+
+  <section id="settings" hidden>
+    <div class="eyebrow" id="t-settings"></div>
+    <div class="panel">
+      <div class="sgrid">
+        <div class="field"><label for="stampPos" id="t-pos"></label>
+          <select id="stampPos">
+            <option value="bottom-right" data-k="posBR"></option><option value="bottom-left" data-k="posBL"></option>
+            <option value="top-right" data-k="posTR"></option><option value="top-left" data-k="posTL"></option>
+            <option value="bottom-center" data-k="posBC"></option>
+          </select></div>
+        <div class="field"><label for="stampFontSize" id="t-fs"></label>
+          <input type="range" id="stampFontSize" min="10" max="72" value="28"><div class="rv" id="fsVal">28px</div></div>
+        <div class="field"><label for="stampColor" id="t-color"></label>
+          <input type="color" id="stampColor" value="#ffffff"></div>
+        <div class="field"><label for="stampBgOpacity" id="t-op"></label>
+          <input type="range" id="stampBgOpacity" min="0" max="100" value="55"><div class="rv" id="opVal">55%</div></div>
+        <div class="field"><label for="stampPadding" id="t-pad"></label>
+          <input type="range" id="stampPadding" min="4" max="40" value="14"><div class="rv" id="padVal">14px</div></div>
+        <div class="field"><label for="stampQuality" id="t-q"></label>
+          <select id="stampQuality">
+            <option value="0.97" data-k="qHigh"></option><option value="0.85" selected data-k="qMed"></option><option value="0.70" data-k="qLow"></option>
+          </select></div>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="inclDate" checked><span id="t-iDate"></span></label>
+        <label><input type="checkbox" id="inclTime" checked><span id="t-iTime"></span></label>
+        <label><input type="checkbox" id="inclGPS" checked><span id="t-iGPS"></span></label>
+        <label><input type="checkbox" id="inclModel" checked><span id="t-iModel"></span></label>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="count"><b id="cnt">00</b><button class="linkbtn" id="clear" type="button" hidden></button></div>
+    <div id="list"></div>
+    <div class="empty" id="empty"></div>
+  </section>
+
+  <footer id="t-foot"></footer>
+</main>
+
+<div class="bar">
+  <div class="bar-in">
+    <div class="status" id="status" aria-live="polite"></div>
+    <button class="ghost" id="csv" type="button" disabled></button>
+    <button class="ghost" id="copyAll" type="button" disabled></button>
+    <button class="go" id="go" type="button" disabled></button>
+  </div>
+</div>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-in" role="dialog" aria-modal="true">
+    <div class="modal-head"><div class="fname" id="modalTitle"></div>
+      <button class="icon-btn" id="modalX" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <canvas id="modalCanvas"></canvas>
+    <div class="modal-actions">
+      <button class="ghost" id="modalClose" type="button"></button>
+      <button class="go" id="modalDl" type="button"></button>
+    </div>
+  </div>
+</div>
+
+
+<script>
+"use strict";
+var PREFIX="exs";
+var I18N = {
+  fr:{sub:"Hors ligne · EXIF · Tampon",images:"Images",add:"Choisir ou déposer des images",
+    hint:"Date, heure, coordonnées GPS et appareil sont lus dans les métadonnées EXIF puis incrustés dans l'image. JPEG et TIFF pris en charge.",
+    settings:"Paramètres du tampon",pos:"Position",posBR:"En bas à droite",posBL:"En bas à gauche",posTR:"En haut à droite",posTL:"En haut à gauche",posBC:"En bas au centre",
+    fs:"Taille de police",color:"Couleur du texte",op:"Opacité du fond",pad:"Marge intérieure",q:"Qualité de sortie",
+    qHigh:"Haute (97 %)",qMed:"Moyenne (85 %)",qLow:"Basse (70 %)",
+    iDate:"Date",iTime:"Heure",iGPS:"Coordonnées GPS",iModel:"Modèle d'appareil",
+    unit:"IMAGES",clear:"Tout effacer",empty:"Aucune image.",remove:"Retirer",
+    go:"Tamponner et tout télécharger",csv:"CSV",copyAll:"Tout copier",
+    close:"Fermer",dlStamped:"Télécharger l'image tamponnée",preview:"Aperçu",download:"Télécharger",
+    labelDate:"Date",labelTime:"Heure",labelLat:"Latitude",labelLng:"Longitude",labelDec:"Coord. déc.",labelCamera:"Appareil",
+    copy:"Copier coord.",copied:"Copié",maps:"Google Maps",na:"absent de l'EXIF",
+    noExif:"Aucune métadonnée EXIF trouvée. Le fichier a peut-être été nettoyé.",
+    reading:"Lecture",stamping:"Tampon",saved:"Images enregistrées",
+    stGPS:"GPS + date",stDate:"Date seule",stPartial:"Partiel",stNone:"Sans EXIF",
+    stampDate:"Date : ",stampTime:"Heure : ",stampGPS:"GPS :  ",stampModel:"Modèle :",
+    alertNoExif:"Aucune image avec des données EXIF à tamponner.",alertCopied:"Copié dans le presse-papiers",
+    alertImgErr:"Impossible de générer l'image. Essayez un autre navigateur.",
+    foot:"Fonctionne dans votre navigateur. Aucune image n'est envoyée."},
+  en:{sub:"Offline · EXIF · Stamp",images:"Images",add:"Choose or drop images",
+    hint:"Date, time, GPS coordinates and camera are read from the EXIF metadata, then burned into the image. JPEG and TIFF supported.",
+    settings:"Stamp settings",pos:"Position",posBR:"Bottom right",posBL:"Bottom left",posTR:"Top right",posTL:"Top left",posBC:"Bottom center",
+    fs:"Font size",color:"Text color",op:"Background opacity",pad:"Padding",q:"Output quality",
+    qHigh:"High (97%)",qMed:"Medium (85%)",qLow:"Low (70%)",
+    iDate:"Date",iTime:"Time",iGPS:"GPS coordinates",iModel:"Camera model",
+    unit:"IMAGES",clear:"Clear all",empty:"No images yet.",remove:"Remove",
+    go:"Stamp & download all",csv:"CSV",copyAll:"Copy all",
+    close:"Close",dlStamped:"Download stamped image",preview:"Preview",download:"Download",
+    labelDate:"Date",labelTime:"Time",labelLat:"Latitude",labelLng:"Longitude",labelDec:"Decimal",labelCamera:"Camera",
+    copy:"Copy coords",copied:"Copied",maps:"Google Maps",na:"not in EXIF",
+    noExif:"No EXIF metadata found. The file may have had metadata stripped.",
+    reading:"Reading",stamping:"Stamping",saved:"Images saved",
+    stGPS:"GPS + date",stDate:"Date only",stPartial:"Partial",stNone:"No EXIF",
+    stampDate:"Date: ",stampTime:"Time: ",stampGPS:"GPS:  ",stampModel:"Model:",
+    alertNoExif:"No images with EXIF data to stamp.",alertCopied:"Copied to clipboard",
+    alertImgErr:"Could not generate image. Try a different browser.",
+    foot:"Runs in your browser. No image is uploaded."},
+  sw:{sub:"Nje ya mtandao · EXIF · Chapa",images:"Picha",add:"Chagua au dondosha picha",
+    hint:"Tarehe, muda, viwianishi vya GPS na kamera husomwa kutoka metadata ya EXIF, kisha huchapishwa kwenye picha. JPEG na TIFF zinasaidiwa.",
+    settings:"Mipangilio ya chapa",pos:"Nafasi",posBR:"Chini kulia",posBL:"Chini kushoto",posTR:"Juu kulia",posTL:"Juu kushoto",posBC:"Chini katikati",
+    fs:"Ukubwa wa herufi",color:"Rangi ya maandishi",op:"Uwazi wa mandharinyuma",pad:"Nafasi ya ndani",q:"Ubora wa matokeo",
+    qHigh:"Juu (97%)",qMed:"Kati (85%)",qLow:"Chini (70%)",
+    iDate:"Tarehe",iTime:"Muda",iGPS:"Viwianishi vya GPS",iModel:"Mfano wa kamera",
+    unit:"PICHA",clear:"Futa zote",empty:"Hakuna picha bado.",remove:"Ondoa",
+    go:"Chapa na pakua zote",csv:"CSV",copyAll:"Nakili zote",
+    close:"Funga",dlStamped:"Pakua picha iliyochapishwa",preview:"Hakikisha",download:"Pakua",
+    labelDate:"Tarehe",labelTime:"Muda",labelLat:"Latitudo",labelLng:"Longitudo",labelDec:"Desimali",labelCamera:"Kamera",
+    copy:"Nakili viwianishi",copied:"Imenakiliwa",maps:"Google Maps",na:"haipo katika EXIF",
+    noExif:"Hakuna metadata ya EXIF. Faili huenda liliondolewa metadata.",
+    reading:"Inasoma",stamping:"Inachapa",saved:"Picha zimehifadhiwa",
+    stGPS:"GPS + tarehe",stDate:"Tarehe tu",stPartial:"Sehemu",stNone:"Hakuna EXIF",
+    stampDate:"Tarehe: ",stampTime:"Muda:   ",stampGPS:"GPS:    ",stampModel:"Mfano:  ",
+    alertNoExif:"Hakuna picha zenye data ya EXIF za kuchapisha.",alertCopied:"Imenakiliwa",
+    alertImgErr:"Haikuweza kutengeneza picha. Jaribu kivinjari kingine.",
+    foot:"Hufanya kazi ndani ya kivinjari chako. Hakuna picha inayopakiwa."},
+  ln:{sub:"Sans internet · EXIF · Elembo",images:"Bafoto",add:"Pona to tika bafoto",
+    hint:"Mokolo, ngonga, esika (GPS) mpe kamera etangami na EXIF, sima ekomami na kati ya foto. JPEG mpe TIFF endimami.",
+    settings:"Mibongiseli ya elembo",pos:"Esika",posBR:"Nse na mobali",posBL:"Nse na mwasi",posTR:"Likoló na mobali",posTL:"Likoló na mwasi",posBC:"Nse katikati",
+    fs:"Bonene ya makomi",color:"Langi ya makomi",op:"Bomonisani ya nsima",pad:"Esika ya kati",q:"Bolamu ya kobima",
+    qHigh:"Makasi (97%)",qMed:"Katikati (85%)",qLow:"Moke (70%)",
+    iDate:"Mokolo",iTime:"Ngonga",iGPS:"Esika (GPS)",iModel:"Modèle ya kamera",
+    unit:"BAFOTO",clear:"Longola nyonso",empty:"Foto ezali nanu te.",remove:"Longola",
+    go:"Tia elembo mpe kitisa nyonso",csv:"CSV",copyAll:"Kopya nyonso",
+    close:"Kanga",dlStamped:"Kitisa foto na elembo",preview:"Tala",download:"Kitisa",
+    labelDate:"Mokolo",labelTime:"Ngonga",labelLat:"Latitudo",labelLng:"Longitudo",labelDec:"Désimale",labelCamera:"Kamera",
+    copy:"Kopya esika",copied:"Ekopiami",maps:"Google Maps",na:"ezali na EXIF te",
+    noExif:"Metadata ya EXIF ezali te. Fichier oyo ekoki kozala elongolami metadata.",
+    reading:"Kotanga",stamping:"Kotia elembo",saved:"Bafoto ebombami",
+    stGPS:"GPS + mokolo",stDate:"Mokolo kaka",stPartial:"Ndambo",stNone:"EXIF ezali te",
+    stampDate:"Mokolo: ",stampTime:"Ngonga: ",stampGPS:"GPS:    ",stampModel:"Modèle: ",
+    alertNoExif:"Foto na EXIF ezali te mpo na kotia elembo.",alertCopied:"Ekopiami",
+    alertImgErr:"Foto esalamaki te. Meka na navigateur mosusu.",
+    foot:"Esalaka kaka na navigateur na yo. Foto moko te etindami."}
+};
+var LANG="fr";
+function t(key){ return (I18N[LANG]&&I18N[LANG][key])||I18N.fr[key]||key; }
+
+function setTheme(mode){
+  document.documentElement.dataset.theme=mode;
+  document.getElementById("ticon").innerHTML = mode==="dark"
+    ? '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>'
+    : '<circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/>';
+  try{ localStorage.setItem(PREFIX+".theme",mode); }catch(e){}
+}
+function bootChrome(){
+  var saved={};
+  try{ saved={theme:localStorage.getItem(PREFIX+".theme"),lang:localStorage.getItem(PREFIX+".lang")}; }catch(e){}
+  var prefersDark = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches;
+  setTheme(saved.theme || (prefersDark?"dark":"light"));
+  if(saved.lang && I18N[saved.lang]) LANG=saved.lang;
+  document.getElementById("lang").value=LANG;
+  document.getElementById("theme").addEventListener("click",function(){
+    setTheme(document.documentElement.dataset.theme==="dark"?"light":"dark");
+  });
+  document.getElementById("lang").addEventListener("change",function(e){
+    LANG=e.target.value; try{localStorage.setItem(PREFIX+".lang",LANG);}catch(err){} applyLang();
+  });
+  applyLang();
+}
+
+var $=function(id){return document.getElementById(id);};
+var allResults=[], pending=0, modalDownloadFn=null;
+
+function applyLang(){
+  document.documentElement.lang=LANG;
+  var map={"t-sub":"sub","t-images":"images","t-add":"add","t-hint":"hint","t-settings":"settings","t-pos":"pos",
+    "t-fs":"fs","t-color":"color","t-op":"op","t-pad":"pad","t-q":"q","t-iDate":"iDate","t-iTime":"iTime",
+    "t-iGPS":"iGPS","t-iModel":"iModel","clear":"clear","empty":"empty","go":"go","csv":"csv","copyAll":"copyAll",
+    "modalClose":"close","modalDl":"dlStamped","t-foot":"foot"};
+  for(var id in map){ $(id).textContent=t(map[id]); }
+  document.querySelectorAll("option[data-k]").forEach(function(o){ o.textContent=t(o.dataset.k); });
+  document.title="EXIF Stamper";
+  render();
+}
+function status(s){ $("status").textContent=s||""; }
+
+
+/* ---------- built-in EXIF reader (JPEG APP1 / TIFF), offline ---------- */
+function readExifTags(buf){
+  var out={};
+  try{
+    var dv=new DataView(buf);
+    if(dv.byteLength<4) return out;
+    var b0=dv.getUint16(0);
+    if(b0===0x4949||b0===0x4D4D){ readTiff(dv,0,out); return out; }   // TIFF file
+    if(b0!==0xFFD8) return out;                                       // not JPEG
+    var off=2;
+    while(off+4<dv.byteLength){
+      if(dv.getUint8(off)!==0xFF) break;
+      var marker=dv.getUint8(off+1);
+      if(marker===0xD8||marker===0x01||(marker>=0xD0&&marker<=0xD7)){ off+=2; continue; }
+      if(marker===0xDA) break;
+      var size=dv.getUint16(off+2);
+      if(marker===0xE1&&off+10<dv.byteLength&&dv.getUint32(off+4)===0x45786966){ readTiff(dv,off+10,out); break; }
+      off+=2+size;
+    }
+  }catch(e){}
+  return out;
+}
+function readTiff(dv,base,out){
+  var le=dv.getUint16(base)===0x4949;
+  var u16=function(o){return dv.getUint16(o,le);}, u32=function(o){return dv.getUint32(o,le);};
+  if(u16(base+2)!==0x2A) return;
+  var val=function(entry){
+    var type=u16(entry+2), count=u32(entry+4);
+    var sizes={1:1,2:1,3:2,4:4,5:8,6:1,7:1,8:2,9:4,10:8};
+    var total=(sizes[type]||1)*count;
+    var p=total>4?base+u32(entry+8):entry+8;
+    if(p<0||p+total>dv.byteLength) return null;
+    if(type===2){ var s=""; for(var i=0;i<count;i++){ var c=dv.getUint8(p+i); if(!c) break; s+=String.fromCharCode(c); } return s.trim(); }
+    var one=function(i){
+      if(type===3) return u16(p+i*2);
+      if(type===4) return u32(p+i*4);
+      if(type===5) return u32(p+i*8)/(u32(p+i*8+4)||1);
+      if(type===10) return dv.getInt32(p+i*8,le)/(dv.getInt32(p+i*8+4,le)||1);
+      if(type===1) return dv.getUint8(p+i);
+      if(type===9) return dv.getInt32(p+i*4,le);
+      return null;
+    };
+    if(count===1) return one(0);
+    var arr=[]; for(var j=0;j<count;j++) arr.push(one(j)); return arr;
+  };
+  var scan=function(ifd,map){
+    if(ifd<base||ifd+2>dv.byteLength) return;
+    var n=u16(ifd); if(n>512) return;
+    for(var i=0;i<n;i++){ var e=ifd+2+i*12, tag=u16(e); if(map[tag]!==undefined) map[tag](val(e)); }
+  };
+  var exifPtr=0, gpsPtr=0;
+  scan(base+u32(base+4),{
+    0x010F:function(v){out.Make=v;}, 0x0110:function(v){out.Model=v;}, 0x0132:function(v){out.DateTime=v;},
+    0x8769:function(v){exifPtr=v;}, 0x8825:function(v){gpsPtr=v;}
+  });
+  if(exifPtr) scan(base+exifPtr,{
+    0x9003:function(v){out.DateTimeOriginal=v;}, 0x9004:function(v){out.DateTimeDigitized=v;}
+  });
+  if(gpsPtr) scan(base+gpsPtr,{
+    0x0001:function(v){out.GPSLatitudeRef=v;}, 0x0002:function(v){out.GPSLatitude=v;},
+    0x0003:function(v){out.GPSLongitudeRef=v;}, 0x0004:function(v){out.GPSLongitude=v;}
+  });
+}
+
+/* ---------- files ---------- */
+function handleFiles(files){
+  var imgs=files.filter(function(f){ return f.type.indexOf("image/")===0; });
+  imgs.forEach(processFile);
+}
+function processFile(file){
+  var id="fc_"+Date.now()+"_"+Math.random().toString(36).slice(2);
+  var url=URL.createObjectURL(file);
+  var imgEl=new Image(); imgEl.src=url;
+  var r={id:id,fileName:file.name,fileSize:formatSize(file.size),imgEl:imgEl,thumb:url,loading:true,hasExif:false};
+  allResults.push(r); pending++; status(t("reading")+" "+pending); render();
+  file.arrayBuffer().then(function(buf){ return readExifTags(buf); }, function(){ return {}; }).then(function(tags){
+    var parsed=parseExif(tags);
+    for(var k in parsed) r[k]=parsed[k];
+    r.loading=false; pending--; status(pending?t("reading")+" "+pending:""); render();
+  });
+}
+function parseExif(data){
+  var r={date:null,time:null,lat:null,lng:null,latRef:null,lngRef:null,latDec:null,lngDec:null,make:null,model:null,hasExif:false};
+  var dt=data.DateTimeOriginal||data.DateTime||data.DateTimeDigitized;
+  if(dt){ r.hasExif=true; var parts=dt.split(" "); r.date=parts[0]?parts[0].replace(/:/g,"-"):null; r.time=parts[1]||null; }
+  if(data.GPSLatitude&&data.GPSLongitude){
+    r.hasExif=true; r.latRef=data.GPSLatitudeRef||"N"; r.lngRef=data.GPSLongitudeRef||"E";
+    r.lat=dmsToStr(data.GPSLatitude,r.latRef); r.lng=dmsToStr(data.GPSLongitude,r.lngRef);
+    r.latDec=dmsToDecimal(data.GPSLatitude,r.latRef); r.lngDec=dmsToDecimal(data.GPSLongitude,r.lngRef);
+  }
+  r.make=data.Make||null; r.model=data.Model||null;
+  if(r.make||r.model) r.hasExif=true;
+  return r;
+}
+function dmsToStr(dms,ref){ if(!dms||dms.length<3) return null; var d=toFloat(dms[0]),m=toFloat(dms[1]),s=toFloat(dms[2]); return d+"° "+m+"' "+s.toFixed(2)+'" '+ref; }
+function dmsToDecimal(dms,ref){ if(!dms||dms.length<3) return null; var d=toFloat(dms[0]),m=toFloat(dms[1]),s=toFloat(dms[2]); var dec=d+m/60+s/3600; if(ref==="S"||ref==="W") dec=-dec; return dec.toFixed(6); }
+function toFloat(v){ if(typeof v==="number") return v; if(v&&v.numerator!==undefined) return v.numerator/(v.denominator||1); return parseFloat(v)||0; }
+
+/* ---------- render ---------- */
+function render(){
+  var list=$("list"); list.innerHTML="";
+  var n=allResults.length;
+  $("cnt").textContent=String(n).padStart(2,"0")+"  "+t("unit");
+  $("empty").hidden=n>0; $("clear").hidden=n===0; $("settings").hidden=n===0;
+  var ready=n>0&&pending===0;
+  $("go").disabled=!ready; $("csv").disabled=!ready; $("copyAll").disabled=!ready;
+  allResults.forEach(function(r,i){
+    var row=document.createElement("div"); row.className="item";
+    var miss='<span class="miss">'+t("na")+'</span>';
+    var body;
+    if(r.loading){ body='<div class="fsize">'+t("reading")+'…</div>'; }
+    else if(!r.hasExif){ body='<div class="hint" style="margin-top:0"><span class="miss">'+t("stNone")+'</span> '+t("noExif")+'</div>'; }
+    else {
+      var hasGPS=r.latDec&&r.lngDec;
+      body='<dl class="kv">'+
+        '<dt>'+t("labelDate")+'</dt><dd>'+(r.date||miss)+'</dd>'+
+        '<dt>'+t("labelTime")+'</dt><dd>'+(r.time||miss)+'</dd>'+
+        '<dt>'+t("labelLat")+'</dt><dd>'+(r.lat?escHtml(r.lat):miss)+'</dd>'+
+        '<dt>'+t("labelLng")+'</dt><dd>'+(r.lng?escHtml(r.lng):miss)+'</dd>'+
+        (hasGPS?'<dt>'+t("labelDec")+'</dt><dd>'+r.latDec+', '+r.lngDec+'</dd>':'')+
+        '<dt>'+t("labelCamera")+'</dt><dd>'+(r.make||r.model?escHtml([r.make,r.model].filter(Boolean).join(" ")):miss)+'</dd>'+
+        '</dl>';
+    }
+    row.innerHTML='<div class="idx">'+String(i+1).padStart(2,"0")+'</div>'+
+      '<img class="thumb" src="'+r.thumb+'" alt="">'+
+      '<div class="meta"><div class="fname" title="'+escHtml(r.fileName)+'">'+escHtml(r.fileName)+'</div>'+body+'</div>'+
+      '<div class="actions"></div>';
+    var act=row.querySelector(".actions");
+    if(!r.loading){
+      if(r.hasExif){
+        act.appendChild(mkBtn("ghost",t("preview"),function(){ previewStamp(r.id); }));
+        act.appendChild(mkBtn("ghost",t("download"),function(){ downloadStamped(r.id); }));
+        if(r.latDec&&r.lngDec){
+          act.appendChild(mkBtn("rm",t("copy"),function(e){ copyText(r.latDec+","+r.lngDec,e.target); }));
+          var a=document.createElement("a"); a.className="rm"; a.target="_blank"; a.rel="noopener";
+          a.href="https://www.google.com/maps?q="+r.latDec+","+r.lngDec; a.textContent=t("maps"); act.appendChild(a);
+        }
+      }
+      act.appendChild(mkBtn("rm",t("remove"),function(){ removeItem(r.id); }));
+    }
+    list.appendChild(row);
+  });
+}
+function mkBtn(cls,label,fn){ var b=document.createElement("button"); b.type="button"; b.className=cls; b.textContent=label; b.addEventListener("click",fn); return b; }
+function removeItem(id){
+  var i=allResults.findIndex(function(r){return r.id===id;});
+  if(i>=0){ if(allResults[i].loading) return; URL.revokeObjectURL(allResults[i].thumb); allResults.splice(i,1); render(); }
+}
+
+/* ---------- stamp engine ---------- */
+function getSettings(){
+  return {
+    pos:$("stampPos").value, fontSize:parseInt($("stampFontSize").value,10), color:$("stampColor").value,
+    bgOpacity:parseInt($("stampBgOpacity").value,10)/100, padding:parseInt($("stampPadding").value,10),
+    quality:parseFloat($("stampQuality").value),
+    inclDate:$("inclDate").checked, inclTime:$("inclTime").checked, inclGPS:$("inclGPS").checked, inclModel:$("inclModel").checked
+  };
+}
+function buildLines(r,s){
+  var lines=[];
+  if(s.inclDate) lines.push(t("stampDate")+(r.date||"N/A"));
+  if(s.inclTime) lines.push(t("stampTime")+(r.time||"N/A"));
+  if(s.inclGPS) lines.push(t("stampGPS")+(r.latDec&&r.lngDec?r.latDec+", "+r.lngDec:"N/A"));
+  if(s.inclModel) lines.push(t("stampModel")+" "+(r.model||r.make||"N/A"));
+  return lines;
+}
+function stampToCanvas(r,canvas){
+  var s=getSettings(), img=r.imgEl;
+  return new Promise(function(resolve){
+    function draw(){
+      var W=img.naturalWidth||img.width||800, H=img.naturalHeight||img.height||600;
+      canvas.width=W; canvas.height=H;
+      var ctx=canvas.getContext("2d"); ctx.drawImage(img,0,0,W,H);
+      var lines=buildLines(r,s); if(!lines.length){ resolve(canvas); return; }
+      var scale=Math.max(0.5,W/1200), fs=Math.round(s.fontSize*scale*1.6), pad=Math.round(s.padding*scale*1.6), lineH=fs*1.5;
+      ctx.font="bold "+fs+"px 'Courier New', monospace"; ctx.textBaseline="top";
+      var maxW=Math.max.apply(null,lines.map(function(l){return ctx.measureText(l).width;}));
+      var boxW=maxW+pad*2, boxH=lines.length*lineH+pad*1.2, margin=pad, x, y;
+      switch(s.pos){
+        case "bottom-left": x=margin; y=H-boxH-margin; break;
+        case "top-right": x=W-boxW-margin; y=margin; break;
+        case "top-left": x=margin; y=margin; break;
+        case "bottom-center": x=(W-boxW)/2; y=H-boxH-margin; break;
+        default: x=W-boxW-margin; y=H-boxH-margin;
+      }
+      ctx.save(); ctx.globalAlpha=s.bgOpacity; ctx.fillStyle="#000"; roundRect(ctx,x,y,boxW,boxH,fs*0.3); ctx.fill(); ctx.restore();
+      ctx.globalAlpha=1; ctx.fillStyle=s.color; ctx.font="bold "+fs+"px 'Courier New', monospace";
+      lines.forEach(function(line,i){ ctx.fillText(line,x+pad,y+pad*0.6+i*lineH); });
+      resolve(canvas);
+    }
+    if(img.complete&&img.naturalWidth>0) draw(); else { img.onload=draw; img.onerror=function(){ resolve(canvas); }; }
+  });
+}
+function roundRect(ctx,x,y,w,h,r){
+  r=Math.min(r,w/2,h/2); ctx.beginPath(); ctx.moveTo(x+r,y);
+  ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+}
+function getById(id){ return allResults.find(function(r){ return r.id===id; }); }
+async function previewStamp(id){
+  var r=getById(id); if(!r) return;
+  var canvas=$("modalCanvas"); $("modalTitle").textContent=r.fileName;
+  await stampToCanvas(r,canvas); $("modal").hidden=false;
+  var q=getSettings().quality, name=r.fileName;
+  modalDownloadFn=function(){ triggerDownload(canvas,name,q); };
+}
+async function downloadStamped(id){
+  var r=getById(id); if(!r) return;
+  var canvas=document.createElement("canvas"); await stampToCanvas(r,canvas);
+  triggerDownload(canvas,r.fileName,getSettings().quality);
+}
+async function stampAll(){
+  var eligible=allResults.filter(function(r){ return r.hasExif; });
+  if(!eligible.length){ alert(t("alertNoExif")); return; }
+  $("go").disabled=true;
+  for(var i=0;i<eligible.length;i++){
+    status(t("stamping")+" "+(i+1)+"/"+eligible.length);
+    var canvas=document.createElement("canvas"); await stampToCanvas(eligible[i],canvas);
+    triggerDownload(canvas,eligible[i].fileName,getSettings().quality);
+    await new Promise(function(res){ setTimeout(res,150); });
+  }
+  status(t("saved")+" · "+eligible.length); render();
+}
+function triggerDownload(canvas,originalName,quality){
+  var isJpeg=/\.(jpg|jpeg)$/i.test(originalName), mime=isJpeg?"image/jpeg":"image/png";
+  var newName=/\.[^.]+$/.test(originalName)?originalName.replace(/(\.[^.]+)$/,"_stamped$1"):originalName+"_stamped.png";
+  canvas.toBlob(function(blob){
+    if(!blob){ alert(t("alertImgErr")); return; }
+    var a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=newName;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(a.href); },60000);
+  },mime,quality);
+}
+function closeModal(){ $("modal").hidden=true; }
+
+/* ---------- utilities ---------- */
+function copyText(text,btn){
+  navigator.clipboard.writeText(text).then(function(){
+    var old=btn.textContent; btn.textContent=t("copied");
+    setTimeout(function(){ btn.textContent=old; },1500);
+  });
+}
+function copyAll(){
+  var lines=allResults.map(function(r){
+    return r.fileName+"\t"+t("labelDate")+": "+(r.date||"N/A")+"\t"+t("labelTime")+": "+(r.time||"N/A")+"\tLat: "+(r.latDec||"N/A")+"\tLng: "+(r.lngDec||"N/A");
+  }).join("\n");
+  navigator.clipboard.writeText(lines).then(function(){ status(t("alertCopied")); });
+}
+function exportCSV(){
+  var q=function(s){ return '"'+String(s||"").replace(/"/g,'""')+'"'; };
+  var header="Filename,Date,Time,Latitude (DMS),Longitude (DMS),Latitude (Dec),Longitude (Dec),Camera Make,Camera Model";
+  var rows=allResults.map(function(r){ return [q(r.fileName),r.date||"",r.time||"",q(r.lat),q(r.lng),r.latDec||"",r.lngDec||"",q(r.make),q(r.model)].join(","); });
+  var blob=new Blob([[header].concat(rows).join("\n")],{type:"text/csv"}), a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download="exif_data.csv"; document.body.appendChild(a); a.click(); a.remove();
+}
+function clearAll(){
+  if(pending) return;
+  allResults.forEach(function(r){ URL.revokeObjectURL(r.thumb); });
+  allResults=[]; $("file").value=""; status(""); render();
+}
+function formatSize(b){ if(b<1024) return b+" B"; if(b<1048576) return (b/1024).toFixed(1)+" KB"; return (b/1048576).toFixed(2)+" MB"; }
+function escHtml(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+/* ---------- wiring ---------- */
+var add=$("add");
+add.addEventListener("click",function(){ $("file").click(); });
+$("file").addEventListener("change",function(e){ handleFiles([].slice.call(e.target.files)); e.target.value=""; });
+add.addEventListener("dragover",function(e){ e.preventDefault(); add.classList.add("drag"); });
+add.addEventListener("dragleave",function(){ add.classList.remove("drag"); });
+add.addEventListener("drop",function(e){ e.preventDefault(); add.classList.remove("drag"); handleFiles([].slice.call(e.dataTransfer.files)); });
+$("stampFontSize").addEventListener("input",function(){ $("fsVal").textContent=this.value+"px"; });
+$("stampBgOpacity").addEventListener("input",function(){ $("opVal").textContent=this.value+"%"; });
+$("stampPadding").addEventListener("input",function(){ $("padVal").textContent=this.value+"px"; });
+$("clear").addEventListener("click",clearAll);
+$("go").addEventListener("click",stampAll);
+$("csv").addEventListener("click",exportCSV);
+$("copyAll").addEventListener("click",copyAll);
+$("modalX").addEventListener("click",closeModal);
+$("modalClose").addEventListener("click",closeModal);
+$("modalDl").addEventListener("click",function(){ if(modalDownloadFn) modalDownloadFn(); });
+$("modal").addEventListener("click",function(e){ if(e.target===e.currentTarget) closeModal(); });
+document.addEventListener("keydown",function(e){ if(e.key==="Escape") closeModal(); });
+
+bootChrome();
+</script>
+</body>
+</html>
